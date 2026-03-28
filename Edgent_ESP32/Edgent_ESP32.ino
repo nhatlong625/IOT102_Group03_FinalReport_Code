@@ -127,7 +127,7 @@ void manualMode() {
     delay(300);
   }
 }
-
+// ===== AUTO MODE =====
 void autoMode() {
   
   // ===== FLOOD =====
