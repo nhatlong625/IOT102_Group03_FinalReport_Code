@@ -30,13 +30,16 @@ const int buttonBarrier = 16;
 const int buttonPump = 17;
 
 // ===== SENSOR VALUE =====
-int rainValue;
+int rainRaw;
 int waterValue;
 int floatState;
+int rainValue;
+int rainPercent;
+int waterPercent;
 
 // ===== TIMER =====
 unsigned long lastBlink = 0;
-
+unsigned long floatHigh = 0;
 // ===== STATE =====
 int servoState = -1;
 int pumpState = -1;
@@ -69,7 +72,7 @@ void beep(int times) {
 
 // ===== LED BLINK =====
 void blink(int led) {
-  if (millis() - lastBlink > 250) {
+  if (millis() - lastBlink > 250) {  // 250ms
     ledState = !ledState;
     digitalWrite(led, ledState);
     lastBlink = millis();
@@ -129,55 +132,65 @@ void manualMode() {
 }
 // ===== AUTO MODE =====
 void autoMode() {
-  
+
+  if (waterPercent > 60) {
+    if (!risingWater) {
+      beep(5);
+      Blynk.logEvent("flood", "Flood risk detected!");
+    }
+    risingWater = true;
+  }
+
+  if (waterPercent < 50) {
+    risingWater = false;
+  }
+
+  if (rainPercent > 60) {
+    if (!heavyRain) {
+      beep(3);
+      Blynk.logEvent("heavy_rain", "Heavy rain detected!");
+    }
+    heavyRain = true;
+  }
+
+  if (rainPercent < 50) {
+    heavyRain = false;
+  }
   // ===== FLOOD =====
-  if (waterValue > 1200) {
+  if (risingWater) {
     digitalWrite(ledGreen, LOW);
     digitalWrite(ledYellow, LOW);
     blink(ledRed);
 
     if (!manualBarrier) moveBarrier(1);
-
-    if (!risingWater) {
-      beep(5);
-      risingWater = true;
-      Blynk.logEvent("flood", "Flood risk detected!");
-    }
-  } else {
-    risingWater = false;
   }
 
   // ===== HEAVY RAIN =====
-  if (waterValue <= 1200 && rainValue < 2500) {
+  else if (heavyRain) {
     digitalWrite(ledGreen, LOW);
     digitalWrite(ledRed, LOW);
     blink(ledYellow);
-
-    if (!heavyRain) {
-      beep(3);
-      heavyRain = true;
-      Blynk.logEvent("heavy_rain", "Heavy rain detected!");
-    }
-  } else {
-    heavyRain = false;
   }
 
   // ===== NORMAL =====
-  if (rainValue >= 2700 && waterValue <= 1000) {
+  else {
     digitalWrite(ledGreen, HIGH);
     digitalWrite(ledRed, LOW);
     digitalWrite(ledYellow, LOW);
-
     if (!manualBarrier) moveBarrier(0);
   }
 
   // ===== PUMP =====
   if (floatState == HIGH) {
-    if (!manualPump && pumpState != 1) {
-      movePump(1);
-      Blynk.logEvent("pump_on", "Pump started");
+    if (floatHigh == 0) floatHigh = millis();
+    if (millis() - floatHigh > 3000) {
+      if (!manualPump && pumpState != 1) {
+        movePump(1);
+        Blynk.logEvent("pump_on", "Pump started");
+      }
     }
   } else {
+    floatHigh = 0;
     if (!manualPump && pumpState != 0) {
       movePump(0);
       Blynk.logEvent("pump_off", "Pump stopped");
@@ -248,14 +261,21 @@ void setup() {
 void loop() {
   BlynkEdgent.run();
 
-  rainValue = analogRead(rainPin);
+  rainRaw = analogRead(rainPin);
   waterValue = analogRead(waterPin);
   floatState = digitalRead(floatPin);
 
+  rainValue = max(0, 4095 - rainRaw);
+  rainPercent = map(rainValue, 0, 4095, 0, 100);
+  rainPercent = constrain(rainPercent, 0, 100);
+
+  waterPercent = map(waterValue, 0, 2000, 0, 100);
+  waterPercent = constrain(waterPercent, 0, 100);
+
   manualMode();
 
-  Blynk.virtualWrite(V0, waterValue);
-  Blynk.virtualWrite(V1, rainValue);
+  Blynk.virtualWrite(V0, waterPercent);
+  Blynk.virtualWrite(V1, rainPercent);
   Blynk.virtualWrite(V2, floatState);
   Blynk.virtualWrite(V5, isAutoMode ? 1 : 0);
 
